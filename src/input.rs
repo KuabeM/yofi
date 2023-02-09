@@ -3,7 +3,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use sctk::{
     environment::Environment,
-    reexports::{calloop, client::protocol::wl_keyboard},
+    reexports::{
+        calloop, client::protocol::wl_keyboard, client::protocol::wl_pointer,
+        client::protocol::wl_touch, client::Main,
+    },
     seat::keyboard::{map_keyboard_repeat, Event as KbEvent, KeyState, RepeatKind},
     seat::{with_seat_data, SeatData, SeatListener},
 };
@@ -23,6 +26,8 @@ pub struct KeyPress {
 #[derive(Default)]
 struct SeatInfo {
     keyboard: Option<wl_keyboard::WlKeyboard>,
+    pointer: Option<Main<wl_pointer::WlPointer>>,
+    touch: Option<Main<wl_touch::WlTouch>>,
 }
 
 fn send_event(state: &mut ModifierState, tx: &Sender<KeyPress>, event: KbEvent) {
@@ -113,6 +118,33 @@ impl InputHandler {
                 }
             } else if let Some(kbd) = data.keyboard.take() {
                 kbd.release();
+            }
+            if seat_data.has_pointer {
+                let pointer = seat.get_pointer();
+                pointer.quick_assign(move |_, event, _| {
+                    log::trace!("new pointer event {:?}", event);
+                    if let wl_pointer::Event::Button {
+                        serial,
+                        time,
+                        button,
+                        state,
+                    } = event
+                    {
+                        log::debug!("Button: {}, {}, {}, {:?}", serial, time, button, state);
+                    }
+                });
+                data.pointer = Some(pointer);
+            } else if let Some(pointer) = data.pointer.take() {
+                pointer.release();
+            }
+            if seat_data.has_touch {
+                let touch = seat.get_touch();
+                touch.quick_assign(move |_, event, _| {
+                    log::trace!("new touch event {:?}", event);
+                });
+                data.touch = Some(touch);
+            } else if let Some(touch) = data.touch.take() {
+                touch.release();
             }
         };
 
